@@ -1,0 +1,86 @@
+pipeline {
+    agent any
+
+    environment {
+        registryCredential = "ACR"
+    }
+
+    stages {
+        stage ('Checkout do codigo') {
+            steps {
+                script {
+                sh 'ls'
+                sh 'pwd'
+                }
+            }
+        }
+        stage ('Set Variables for deploy') {
+            steps {
+                script {
+                    withCredentials([azureServicePrincipal(
+                        credentialsId: 'jenkinslocalsp',
+                        subscriptionIdVariable: 'ARM_SUBSCRIPTION_ID',
+                        clientIdVariable: 'ARM_CLIENT_ID',
+                        clientSecretVariable: 'ARM_CLIENT_SECRET',
+                        tenantIdVariable: 'ARM_TENANT_ID'
+                    )
+                ]){
+                    sh 'az login --service-principal -u $ARM_CLIENT_ID -p=$ARM_CLIENT_SECRET --tenant $ARM_TENANT_ID'
+  
+                    sh """   
+                       env.registryName=\$(az acr list -o table | grep 'teste' | awk '{print \$1}' | cut -d "T" -f1)
+                       env.registryUrl=\$(az acr list -o table | grep 'teste' | awk '{print \$5}' | cut -d "T" -f1)
+                       echo \$registryName
+                       echo \$registryUrl
+                    """
+                }
+            }
+        }
+        }
+
+        stage ('Construcao da imagem docker') {
+            steps {
+                script {
+                    dockerapp = docker.build("talentpool:${env.BUILD_ID}",
+                                             '.')
+                }
+            }
+        }
+
+
+        stage ('Docker push') {
+            steps {
+                script {
+                    docker.withRegistry( "http://${registryUrl}", registryCredential ) {
+                    dockerapp.push('latest')
+                    dockerapp.push("${env.BUILD_ID}")
+                    }
+                }
+            }
+        }
+
+            stage ('Deploy no Azure App Service') {
+                        steps {
+                            script {
+                                    withCredentials([azureServicePrincipal(
+                                        credentialsId: 'jenkinslocalsp',
+                                        subscriptionIdVariable: 'ARM_SUBSCRIPTION_ID',
+                                        clientIdVariable: 'ARM_CLIENT_ID',
+                                        clientSecretVariable: 'ARM_CLIENT_SECRET',
+                                        tenantIdVariable: 'ARM_TENANT_ID'
+                                    )
+                                        
+                                    ]) {
+                                        sh 'az login --service-principal -u $ARM_CLIENT_ID -p=$ARM_CLIENT_SECRET --tenant $ARM_TENANT_ID'                                  
+                                        sh 'az webapp config container set --name \$registryName --resource-group testetp-rg --docker-custom-image-name \$registryUrl/talentpool:$BUILD_ID'
+                                        
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+        }
+
+
+        
