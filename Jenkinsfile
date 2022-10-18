@@ -1,7 +1,7 @@
 pipeline{
     agent any 
     tools {
-        "terraform"
+        "org.jenkinsci.plugins.terraform.TerraformInstallation" "terraform"
     }
     environment {
         TF_HOME = tool('terraform')
